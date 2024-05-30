@@ -81,9 +81,9 @@ class PL_Var(PL_LVal):
 
 
 class PL_ArrIdx(PL_LVal):
-    def __init__(self, *, arr: list, idx: int):
-        self.arr: list = arr
-        self.idx: int = idx
+    def __init__(self, *, arr, idx):
+        self.arr = arr
+        self.idx = idx
 
     def get_val(self):
         return self.arr[self.idx]
@@ -100,7 +100,7 @@ def get_val(val):
 
 
 class PL_Jumper(Exception):
-    def __init__(self, val):
+    def __init__(self, val=None):
         self.val = val
 
 
@@ -145,6 +145,8 @@ class PL_Lambda:
             ret = eval_block(self.body, env=env)
         except PL_Returner as r:
             ret = r.val
+        except PL_Jumper as j:
+            raise PL_Jumper(f"The jumper carries value {j.val}")
 
         return ret
 
@@ -172,12 +174,14 @@ class PL_Interpreter:
 
     def start_repl(self):
         parse = lark.Lark(PL_grammar, start="expr_or_stmt").parse
+        ps1, ps2 = (
+            f"{TermColor.Magenta.value}=>{TermColor.End.value} ",
+            f"{TermColor.Green.value}->{TermColor.End.value} ",
+        )
 
         while True:
 
-            while (
-                txt := input(f"{TermColor.Magenta.value}=>{TermColor.End.value} ")
-            ) == "" or txt.isspace():
+            while ((txt := input(ps1)) + " ").isspace():
                 pass
 
             while True:
@@ -186,9 +190,7 @@ class PL_Interpreter:
                     expr_or_stmt: str = ast.data
                     expr = ast.children[0]
                 except lark.exceptions.UnexpectedEOF:
-                    txt += "\n" + input(
-                        f"{TermColor.Green.value}->{TermColor.End.value} "
-                    )
+                    txt += "\n" + input(ps2)
                 except Exception as e:
                     print("Error:", e, file=sys.stderr)
                     if hasattr(e, "__notes__"):
@@ -200,7 +202,11 @@ class PL_Interpreter:
                             f"{ast.pretty()}\n{ast}" if hasattr(ast, "pretty") else ast
                         )
                     else:
-                        self.exec_stmt(expr, interactive=expr_or_stmt == "expr")
+                        self.exec_stmt(
+                            expr,
+                            interactive=True,
+                            expr_or_stmt=expr_or_stmt,
+                        )
                     break
 
     def run_prog(self, prog: str, /):
@@ -208,16 +214,21 @@ class PL_Interpreter:
             self.exec_stmt(stmt)
 
     def exec_stmt(
-        self, stmt: lark.lexer.Token | lark.tree.Tree, /, *, interactive: bool = False
+        self,
+        stmt: lark.lexer.Token | lark.tree.Tree,
+        /,
+        *,
+        interactive: bool = False,
+        expr_or_stmt: str = "stmt",  # when using REPL user may enter an expression whose value’ll be printed.
     ):
         try:
             ret = get_val(PL_eval(stmt, env=self.env))
         except PL_Jumper as j:
-            print("Error", j, file=sys.stderr)
+            print("PL:", "Error Jump Statement", j, file=sys.stderr)
             return
         except Exception as e:
             if interactive:
-                print("Error:", e, file=sys.stderr)
+                print("PL:", "Error", e, file=sys.stderr)
                 if hasattr(e, "__notes__"):
                     print(*e.__notes__, sep="\n", file=sys.stderr)
             else:
@@ -225,8 +236,11 @@ class PL_Interpreter:
         except KeyboardInterrupt:
             print("KeyboardInterrupt", file=sys.stderr)
         else:
-            if interactive:
-                print(f"{TermColor.Cyan.value}{ret}{TermColor.End.value}")
+            if interactive and expr_or_stmt == "expr":
+                try:
+                    print(f"{TermColor.Cyan.value}{ret}{TermColor.End.value}")
+                except Exception as e:
+                    print("Error:", e, file=sys.stderr)
 
 
 def PL_eval(expr: lark.lexer.Token | lark.tree.Tree, *, env: List[PL_Env]):
@@ -240,15 +254,19 @@ def PL_eval(expr: lark.lexer.Token | lark.tree.Tree, *, env: List[PL_Env]):
                     return eval(repr)
                 case "INT":
                     return int(repr)
-                case _:
-                    raise SyntaxError("PL: " + f"unknown literal type: {expr}!")
+                case unknown_t:
+                    raise SyntaxError(
+                        "PL: " + f"unknown literal type: ({unknown_t}){expr}!"
+                    )
 
     form = expr.children
     match expr.data if isinstance(expr.data, str) else expr.data.value:
         case "sum_expr" | "product_expr" | "pow_expr":
             return eval_arithm_expr_2op(form, env=env)
-        case "neg_expr" | "not_expr":
-            return eval_simple_expr_1op(form, env=env)
+        case "not_expr":
+            return not get_val(PL_eval(form[0], env=env))
+        case "neg_expr":
+            return -get_val(PL_eval(form[0], env=env))
         case "var_decl":
             return eval_defvar(form, env=env)
         case "cmp_expr":
@@ -258,8 +276,8 @@ def PL_eval(expr: lark.lexer.Token | lark.tree.Tree, *, env: List[PL_Env]):
         case "or_expr":
             return eval_or_expr(form, env=env)
         case "post_inc_expr" | "post_dec_expr" as expr_t:
-            return eval_post_inc_expr(
-                form, env=env, increment=1 if "inc" in expr_t else -1
+            return eval_post_iop_expr(
+                form, env=env, op="iadd", val=1 if "inc" in expr_t else -1
             )
         case "pre_inc_expr" | "pre_dec_expr" as expr_t:
             return eval_iop_expr(
@@ -268,7 +286,13 @@ def PL_eval(expr: lark.lexer.Token | lark.tree.Tree, *, env: List[PL_Env]):
         case "arr_lit":
             return eval_arr_lit(form, env=env)
         case "subscripting":
-            return eval_subscripting(form, env=env)
+            return eval_subscripting(form[0], form[1], env=env)
+        case "member_accessing":
+            field = form[1]
+            assert isinstance(field, lark.lexer.Token)
+            return eval_subscripting(
+                form[0], field.update("STRING", f'"{field.value}"'), env=env
+            )
         case "fn_lit":
             varnames, block = form
             return PL_Lambda(
@@ -281,6 +305,10 @@ def PL_eval(expr: lark.lexer.Token | lark.tree.Tree, *, env: List[PL_Env]):
         case "funcall":
             fn_expr, args = form
             return eval_funcall(fn_expr, args.children, env=env)
+        case "deref_expr":
+            return eval_funcall(form[0], [], env=env)
+        case "addr_of_expr":
+            return lambda lval=PL_eval(form[0], env=env): lval
         case "jmp_expr":
             return eval_jmp(type=getattr(form[0], "value"), expr=form[1], env=env)
         case "assign_expr":
@@ -333,7 +361,7 @@ def eval_loop(
             break
 
         if iter_expr is not None:
-            PL_eval(iter_expr, env=env)
+            PL_eval(iter_expr, env=iter_env)
 
     return ret
 
@@ -380,23 +408,23 @@ def eval_funcall(
     env: List[PL_Env],
 ):
     fn = get_val(PL_eval(fn_expr, env=env))
-    assert "__call__" in dir(fn)
+    assert callable(fn)
     return fn(*(get_val(PL_eval(arg, env=env)) for arg in args))
 
 
 def eval_subscripting(
-    form: List[lark.lexer.Token | lark.tree.Tree], *, env: List[PL_Env]
+    arr: lark.lexer.Token | lark.tree.Tree,
+    idx: lark.lexer.Token | lark.tree.Tree,
+    *,
+    env: List[PL_Env],
 ):
-    arr, idx = (get_val(PL_eval(expr, env=env)) for expr in form)
-    assert isinstance(arr, list)
-    return PL_ArrIdx(arr=arr, idx=idx)
+    return PL_ArrIdx(
+        arr=get_val(PL_eval(arr, env=env)), idx=get_val(PL_eval(idx, env=env))
+    )
 
 
 def eval_arr_lit(form: List[lark.lexer.Token | lark.tree.Tree], *, env: List[PL_Env]):
-    arr = []
-    for expr in form:
-        arr.append(get_val(PL_eval(expr, env=env)))
-    return arr
+    return [get_val(PL_eval(expr, env=env)) for expr in form]
 
 
 def eval_iop_expr(
@@ -408,13 +436,17 @@ def eval_iop_expr(
     return lval
 
 
-def eval_post_inc_expr(
-    form: List[lark.lexer.Token | lark.tree.Tree], *, env: List[PL_Env], increment: int
+def eval_post_iop_expr(
+    form: List[lark.lexer.Token | lark.tree.Tree],
+    *,
+    env: List[PL_Env],
+    val,
+    op: str,
 ):
     lval = PL_eval(form[0], env=env)
     assert isinstance(lval, PL_LVal)
     old_val = get_val(lval)
-    lval.val += increment
+    lval.val = {"iadd": operator.iadd}[op](lval.val, val)
     return old_val
 
 
@@ -446,16 +478,6 @@ def eval_defvar(form: List[lark.lexer.Token | lark.tree.Tree], *, env: List[PL_E
     return PL_Var(env=new_env, varname=varname)
 
 
-def eval_simple_expr_1op(
-    form: List[lark.lexer.Token | lark.tree.Tree], *, env: List[PL_Env]
-):
-    op, expr = form
-    assert isinstance(op, lark.lexer.Token)
-    return {"NOT_SIGN": operator.not_, "NEG_SIGN": operator.neg}[op.type](
-        get_val(PL_eval(expr, env=env))
-    )
-
-
 def eval_cmp_expr(form: List[lark.lexer.Token | lark.tree.Tree], *, env: List[PL_Env]):
     a = get_val(PL_eval(form[0], env=env))
     for op_sign, b_expr in itertools.batched(form[1:], 2):
@@ -484,13 +506,12 @@ def eval_arithm_expr_2op(
         "PLUS_SIGN": operator.add,
         "MINUS_SIGN": operator.sub,
         "MUL_SIGN": operator.mul,
-        "FLOORDIV_SIGN": operator.floordiv,
+        "DIV_SIGN": lambda a, b: a // b if type(a) == type(b) == int else a / b,
         "POW_SIGN": operator.pow,
     }[op_sign.type](get_val(PL_eval(expr1, env=env)), get_val(PL_eval(expr2, env=env)))
 
 
-PL_grammar: str = (
-    """
+PL_grammar: str = """
 # Architecture
 prog: stmt*
 ?stmt: expr ";"
@@ -501,45 +522,46 @@ prog: stmt*
 ## Pre-Requisite
 ?or_expr: and_expr
         | or_expr "OR" and_expr
-?and_expr: not_expr_
-         | and_expr "AND" not_expr_
-?not_expr_: cmp_expr
-          | NOT_SIGN not_expr_ -> not_expr
+?and_expr: not_expr
+         | and_expr "AND" not_expr
+!?not_expr: cmp_expr
+          | "NOT" not_expr
 ?sum_expr: product_expr
-         | sum_expr sum_op product_expr
-?product_expr: neg_expr_
-             | product_expr product_op neg_expr_
-?neg_expr_: pow_expr
-          | NEG_SIGN neg_expr_ -> neg_expr
-?pow_expr: ll_expr
-         | ll_expr POW_SIGN pow_expr
-inc_expr: "++" ll_expr -> pre_inc_expr
-        | ll_expr "++" -> post_inc_expr
-dec_expr: "--" ll_expr -> pre_dec_expr
-        | ll_expr "--" -> post_dec_expr
+         | sum_expr (PLUS_SIGN|MINUS_SIGN) product_expr
+?product_expr: neg_like_expr
+             | product_expr (MUL_SIGN|DIV_SIGN) neg_like_expr
+?neg_like_expr: pow_expr
+              | "-"  neg_like_expr -> neg_expr
+              | "++" neg_like_expr -> pre_inc_expr
+              | "--" neg_like_expr -> pre_dec_expr
+              | "&"  neg_like_expr -> addr_of_expr
+              | "*"  neg_like_expr -> deref_expr
+?pow_expr: funcall_like_expr
+         | funcall_like_expr POW_SIGN neg_like_expr
+?funcall_like_expr: atom_expr
+                  | subscripting | funcall
+                  | atom_expr "." CNAME -> member_accessing
+                  | funcall_like_expr "++" -> post_inc_expr
+                  | funcall_like_expr "--" -> post_dec_expr
 ## Main
 ?expr: assign_expr
      | (CONTINUE|BREAK|RETURN) [expr] -> jmp_expr
      | "LET" IDENT ["=" expr]         -> var_decl
 ?assign_expr: logic_expr
-            | ll_expr "=" expr
-?logic_expr: cmp_expr
-           | or_expr
-?cmp_expr: arithm_expr (cmp_op arithm_expr)*
-?arithm_expr: ll_expr
-            | sum_expr
-?ll_expr: IDENT | lit_val | "(" expr ")"
-        | inc_expr | dec_expr
-        | subscripting | funcall
-        | block_expr | if_expr | loop_expr
+            | logic_expr "=" assign_expr
+?logic_expr: or_expr
+?cmp_expr: sum_expr ((EQ_SIGN|NE_SIGN|LE_SIGN|GE_SIGN|LT_SIGN|GT_SIGN) sum_expr)*
+?atom_expr: IDENT
+          | lit_val | "(" expr ")" | block_expr
+          | if_expr | loop_expr
 
 # Array
 arr_lit: "[" (expr ("," expr)*)? "]"
-subscripting: ll_expr "[" expr "]"
+subscripting: funcall_like_expr "[" expr "]"
 
 # Function
 fn_lit: parameters (block_stmt|block_expr)
-funcall: ll_expr args
+funcall: funcall_like_expr args
 
 # Statements
 if_stmt: "IF" expr block_stmt ("ELSE" (if_stmt | "{" stmt*     "}"))?
@@ -564,21 +586,11 @@ args: "(" (expr ("," expr)*)? ")"
         | arr_lit
         | fn_lit
         | STRING
-NEG_SIGN: "-"
-NOT_SIGN: "NOT"
 POW_SIGN: "^"
-?product_op: MUL_SIGN | FLOORDIV_SIGN
 MUL_SIGN: "*"
-FLOORDIV_SIGN: "/"
-?sum_op: PLUS_SIGN | MINUS_SIGN
+DIV_SIGN: "/"
 PLUS_SIGN: "+"
 MINUS_SIGN: "-"
-?cmp_op: EQ_SIGN
-       | NE_SIGN
-       | LE_SIGN
-       | GE_SIGN
-       | LT_SIGN
-       | GT_SIGN
 EQ_SIGN: "=="
 NE_SIGN: "!=" | "<>"
 LE_SIGN: "<="
@@ -592,13 +604,11 @@ expr_or_stmt: stmt -> stmt
 # Also see <~/AppData/Local/Packages/PythonSoftwareFoundation.Python.3.12_qbz5n2kfra8p0/LocalCache/local-packages/Python312/site-packages/lark/grammars/common.lark>.  (Personal note.)
 %import common.ESCAPED_STRING -> STRING
 %import common.INT
-%import common (LCASE_LETTER, LETTER, DIGIT)
+%import common (LCASE_LETTER, LETTER, DIGIT, CNAME)
 %import common (WS, NEWLINE, SH_COMMENT)
 %ignore WS
 %ignore SH_COMMENT
 """
-)
-
 
 if __name__ == "__main__":
 
@@ -626,15 +636,25 @@ Copyright © 2024  Xie Qi.  All rights reserved.
     # Create Interpreter
     i = PL_Interpreter(
         prelude="""
-Get("Print" ) = Py("print" );
-Get("Sorted") = Py("sorted");
-Get("Min"   ) = Py("min"   );
-Get("Max"   ) = Py("max"   );
-Get("Scan"  ) = Py("input" );
-Get("Len"   ) = Py("len"   );
-Get("Sum"   ) = Py("sum"   );
-Get("Dict"  ) = Py("dict"  );
-Get("Set"   ) = Py("set"   );
+Get("Print"    ) = Py("print ");
+Get("Sorted"   ) = Py("sorted");
+Get("Min"      ) = Py("min   ");
+Get("Max"      ) = Py("max   ");
+Get("Scan"     ) = Py("input ");
+Get("Len"      ) = Py("len   ");
+Get("Sum"      ) = Py("sum   ");
+Get("Dict"     ) = Py("dict  ");
+Get("Set"      ) = Py("set   ");
+Get("Copy"     ) = Py("__import__('copy').copy"    );
+Get("DeepCopy" ) = Py("__import__('copy').deepcopy");
+Get("Fargs"    ) = Py("lambda f: lambda *args: f([*args])");  # func(List) -> func(*args)
+Get("DefStruct") = Py("lambda *fields:  \
+    __import__('dataclasses').dataclass(  \
+        type('结构体', (), {  \
+            '__annotations__': {field: object for field in fields},  \
+            '__getitem__': lambda self, field: getattr(self, field),  \
+            '__setitem__': lambda self, field, new_val: setattr(self, field, new_val),  \
+}))");
 """,
     )
 
