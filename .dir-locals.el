@@ -1,1 +1,2 @@
-((nil . ((mode . company))))
+((nil . ((mode . company)))
+ (markdown-mode . ((mode . electric-quote-local))))

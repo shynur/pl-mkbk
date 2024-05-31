@@ -1,5 +1,10 @@
+#! python3.12
 import cx_Freeze  # 7.1.0
 
+
+"""
+$ ./build.py build
+"""
 
 cx_Freeze.setup(
     name="plm",

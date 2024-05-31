@@ -92,6 +92,24 @@ class PL_ArrIdx(PL_LVal):
         self.arr[self.idx] = val
 
 
+class PL_MemberAccess(PL_LVal):
+    def __init__(self, *, instance, member: str):
+        self.instance = instance
+        self.member: str = member
+
+    def get_val(self):
+        return getattr(self.instance, self.member)
+
+    def set_val(self, val):
+        setattr(self.instance, self.member, val)
+
+    def __repr__(self):
+        instance = self.instance
+        member = self.member
+
+        return f"<PL_MemberAccess {instance=} {member=} @{id(self)}>"
+
+
 def get_val(val):
     if isinstance(val, PL_LVal):
         return val.val
@@ -152,7 +170,12 @@ class PL_Lambda:
 
 
 class PL_Interpreter:
-    def __init__(self, *, prelude: Optional[str] = None, debug: bool = False):
+    def __init__(
+        self,
+        *,
+        prelude: Optional[str] = None,
+        debug: bool = False,  # 打印 AST 而不求值.
+    ):
         self.debug = debug
 
         global_environment = PL_Env(
@@ -288,10 +311,10 @@ def PL_eval(expr: lark.lexer.Token | lark.tree.Tree, *, env: List[PL_Env]):
         case "subscripting":
             return eval_subscripting(form[0], form[1], env=env)
         case "member_accessing":
-            field = form[1]
+            instance, field = form
             assert isinstance(field, lark.lexer.Token)
-            return eval_subscripting(
-                form[0], field.update("STRING", f'"{field.value}"'), env=env
+            return PL_MemberAccess(
+                instance=get_val(PL_eval(instance, env=env)), member=field.value
             )
         case "fn_lit":
             varnames, block = form
@@ -540,7 +563,7 @@ prog: stmt*
          | funcall_like_expr POW_SIGN neg_like_expr
 ?funcall_like_expr: atom_expr
                   | subscripting | funcall
-                  | atom_expr "." CNAME -> member_accessing
+                  | funcall_like_expr "." CNAME -> member_accessing
                   | funcall_like_expr "++" -> post_inc_expr
                   | funcall_like_expr "--" -> post_dec_expr
 ## Main
@@ -611,6 +634,7 @@ expr_or_stmt: stmt -> stmt
 """
 
 if __name__ == "__main__":
+    __import__("gc").disable()
 
     # Get Command Line Options and Arguments
     import argparse
@@ -640,7 +664,6 @@ Get("Print"    ) = Py("print ");
 Get("Sorted"   ) = Py("sorted");
 Get("Min"      ) = Py("min   ");
 Get("Max"      ) = Py("max   ");
-Get("Scan"     ) = Py("input ");
 Get("Len"      ) = Py("len   ");
 Get("Sum"      ) = Py("sum   ");
 Get("Dict"     ) = Py("dict  ");
@@ -648,14 +671,18 @@ Get("Set"      ) = Py("set   ");
 Get("Copy"     ) = Py("__import__('copy').copy"    );
 Get("DeepCopy" ) = Py("__import__('copy').deepcopy");
 Get("Fargs"    ) = Py("lambda f: lambda *args: f([*args])");  # func(List) -> func(*args)
-Get("DefStruct") = Py("lambda *fields:  \
+Get("Struct"   ) = Py("lambda *fields:  \
     __import__('dataclasses').dataclass(  \
         type('结构体', (), {  \
             '__annotations__': {field: object for field in fields},  \
-            '__getitem__': lambda self, field: getattr(self, field),  \
-            '__setitem__': lambda self, field, new_val: setattr(self, field, new_val),  \
-}))");
-""",
+            '__getattr__': lambda self, field: None,  \
+            '__getitem__': __import__('functools').partialmethod(getattr),  \
+            '__setitem__': __import__('functools').partialmethod(setattr),  \
+}))");  # ECMAScript-like Object except that assignment to a non-existing attribute has no effect
+"""
+        + """
+Get("Scan"     ) = Py("input ");
+"""
     )
 
     # 1. Execute Source Code
