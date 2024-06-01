@@ -1,0 +1,21 @@
+WHILE True {
+    LET num
+        = Py("__import__('random')")
+          .randint(1, 100);
+
+    WHILE True {
+        LET your_guess = Int(Scan("你猜的数字: "));
+        IF your_guess < num {
+            Print("小了");
+        } ELSE IF your_guess == num {
+            Print("猜对了!\n");
+            BREAK;
+        } ELSE {
+            Print("大了");
+        }
+    }
+
+    IF Scan("再来一把? ") != "yes" {
+        BREAK;
+    }
+}

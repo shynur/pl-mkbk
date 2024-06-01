@@ -1,0 +1,62 @@
+# if 语句; while 语句; 布尔类型;
+# 字符串类型; 字符串加法/乘法.
+WHILE True {
+    IF Scan(": ") == "A" {
+        Print("got A");
+    } ELSE IF LET num = Int(Scan("number? ")) {
+        LET num = num / 2;
+        Print("got", num + num);
+    } ELSE {
+        LET str = Str(num) + "!" * 2;
+        Print("got", str);
+    }
+}
+# 声明语句.
+
+# if 也可作为表达式.
+Print( IF 1 { 2^3 } ELSE { 4^5 } );
+
+# for 语句; 自增/自减运算符.
+FOR LET i = 0; i != 3; {
+    Print(i--, i, ++i);
+    ++i = 3;
+}
+
+# 与或非.
+NOT 1 < 2 < 3 OR True AND 1+1==2;
+
+# 任意维数组; 数组元素赋值; 获取数组元素.
+LET arr = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];
+arr[1][0][1] = 999;
+Print(arr);
+
+# 结构体.
+LET Person = Struct("name", "age");
+LET lc = Person("Lucy", 21);
+Print(lc);
+
+# (多级) 指针.
+LET p = &lc.name;
+Print(*p);
+*p = "ucy-Lay";
+Print(lc);
+LET ppp = *&&arr[1][0][1];
+**&ppp = -555;
+Print(arr);
+
+# 函数, 匿名函数, 闭包.
+LET add_1 = |n| { RETURN n+1; };
+Print(add_1(9));
+|| {
+    LET a = "A";
+    LET closure = || { Print(a); };
+    LET a = "B";
+    RETURN closure;
+}()();
+
+# 友好的交互界面:
+# 可编辑的代码框,
+# 运行结果显示框,
+# 导入编译文件.
+
+# 课程未介绍过的工具/框架: lark.

@@ -1,0 +1,37 @@
+Get("Bool") = Py("bool");
+Get("BreakPoint") = Py("breakpoint");
+Get("Complex") = Py("complex");
+Get("Copy") = Py("__import__('copy').copy");
+Get("DeepCopy") = Py("__import__('copy').deepcopy");
+Get("Dict") = Py("dict");
+Get("Fargs") = Py("lambda f: lambda *args: f([*args])");  # func(List) -> func(*args)
+Get("Float") = Py("float");
+Get("Input") = Py("input");
+Get("Int") = Py("int");
+Get("Len") = Py("len");
+Get("List") = Py("list");
+Get("Max") = Py("max");
+Get("Min") = Py("min");
+Get("Print") = Py("print");
+Get("Reversed") = Py("reversed");
+Get("Round") = Py("round");
+Get("Set") = Py("set");
+Get("Sorted") = Py("sorted");
+Get("Str") = Py("str");
+Get("Sum") = Py("sum");
+Get("Struct") = Py("lambda *fields:  " +
+    "__import__('dataclasses').dataclass(  " +
+        "type('结构体', (), {  " +
+            "'__annotations__': {field: object for field in fields},  " +
+            "'__getattr__': lambda self, field: None,  " +
+            "'__getitem__': __import__('functools').partialmethod(getattr),  " +
+            "'__setitem__': __import__('functools').partialmethod(setattr),  " +
+"}))");  # ECMAScript-like Object except that assignment to a non-existing attribute has no effect
+Get("Type") = Py("type");
+Get("Scan") = Py("input");
+
+
+# Local Variables:
+# mode: prog
+# comment-start: "#"
+# End:

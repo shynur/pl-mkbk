@@ -1,4 +1,5 @@
 #! python3.12
+import os
 import operator
 import itertools
 import sys
@@ -537,104 +538,10 @@ def eval_arithm_expr_2op(
     }[op_sign.type](get_val(PL_eval(expr1, env=env)), get_val(PL_eval(expr2, env=env)))
 
 
-PL_grammar: str = """
-# Architecture
-prog: stmt*
-?stmt: expr ";"
-     | block_stmt
-     | if_stmt | loop_stmt
-
-# Expression
-## Pre-Requisite
-?or_expr: and_expr
-        | or_expr "OR" and_expr
-?and_expr: not_expr
-         | and_expr "AND" not_expr
-!?not_expr: cmp_expr
-          | "NOT" not_expr
-?sum_expr: product_expr
-         | sum_expr (PLUS_SIGN|MINUS_SIGN) product_expr
-?product_expr: neg_like_expr
-             | product_expr (MUL_SIGN|DIV_SIGN) neg_like_expr
-?neg_like_expr: pow_expr
-              | "-"  neg_like_expr -> neg_expr
-              | "++" neg_like_expr -> pre_inc_expr
-              | "--" neg_like_expr -> pre_dec_expr
-              | "&"  neg_like_expr -> addr_of_expr
-              | "*"  neg_like_expr -> deref_expr
-?pow_expr: funcall_like_expr
-         | funcall_like_expr POW_SIGN neg_like_expr
-?funcall_like_expr: atom_expr
-                  | subscripting | funcall
-                  | funcall_like_expr "." CNAME -> member_accessing
-                  | funcall_like_expr "++" -> post_inc_expr
-                  | funcall_like_expr "--" -> post_dec_expr
-## Main
-?expr: assign_expr
-     | (CONTINUE|BREAK|RETURN) [expr] -> jmp_expr
-     | "LET" IDENT ["=" expr]         -> var_decl
-?assign_expr: logic_expr
-            | logic_expr "=" assign_expr
-?logic_expr: or_expr
-?cmp_expr: sum_expr ((EQ_SIGN|NE_SIGN|LE_SIGN|GE_SIGN|LT_SIGN|GT_SIGN) sum_expr)*
-?atom_expr: IDENT
-          | lit_val | "(" expr ")" | block_expr
-          | if_expr | loop_expr
-
-# Array
-arr_lit: "[" (expr ("," expr)*)? "]"
-subscripting: funcall_like_expr "[" expr "]"
-
-# Function
-fn_lit: parameters (block_stmt|block_expr)
-funcall: funcall_like_expr args
-
-# Statements
-if_stmt: "IF" expr block_stmt ("ELSE" (if_stmt | "{" stmt*     "}"))?
-if_expr: "IF" expr block_expr ("ELSE" (if_expr | "{" stmt* expr"}"))?
-
-loop_stmt: ("FOR"|"WHILE") _loop_head block_stmt
-loop_expr: ("FOR"|"WHILE") _loop_head block_expr
-_loop_head: [UNMATCHABLE]  expr      [UNMATCHABLE]
-          |    [expr] ";"  expr ";"     [expr]
-
-# Misc
-CONTINUE: "CONTINUE"
-BREAK: "BREAK"
-RETURN: "RETURN"
-IDENT: (LETTER|"_")+ (LCASE_LETTER|"_"|DIGIT) (LETTER|"_"|DIGIT)*
-     |               (LCASE_LETTER|"_")       (LETTER|"_"|DIGIT)*
-parameters: "|" (IDENT ("," IDENT)*)? "|"
-block_stmt: "{" stmt*      "}"
-block_expr: "{" stmt* expr "}"
-args: "(" (expr ("," expr)*)? ")"
-?lit_val: INT
-        | arr_lit
-        | fn_lit
-        | STRING
-POW_SIGN: "^"
-MUL_SIGN: "*"
-DIV_SIGN: "/"
-PLUS_SIGN: "+"
-MINUS_SIGN: "-"
-EQ_SIGN: "=="
-NE_SIGN: "!=" | "<>"
-LE_SIGN: "<="
-GE_SIGN: ">="
-LT_SIGN: "<"
-GT_SIGN: ">"
-UNMATCHABLE: /^o^/
-expr_or_stmt: stmt -> stmt
-            | expr -> expr
-
-# Also see <~/AppData/Local/Packages/PythonSoftwareFoundation.Python.3.12_qbz5n2kfra8p0/LocalCache/local-packages/Python312/site-packages/lark/grammars/common.lark>.  (Personal note.)
-%import common.ESCAPED_STRING -> STRING
-%import common.INT
-%import common (LCASE_LETTER, LETTER, DIGIT, CNAME)
-%import common (WS, NEWLINE, SH_COMMENT)
-%ignore WS
-%ignore SH_COMMENT
-"""
+PL_grammar: str = open(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "pl.lark"),
+    encoding="utf-8",
+).read()
 
 if __name__ == "__main__":
     __import__("gc").disable()
@@ -657,48 +564,51 @@ Copyright © 2024  Xie Qi.  All rights reserved.
         default=None,
         help="交互模式",
     )
+    cmdarg_parser.add_argument(
+        "-c",
+        action="store_true",
+        dest="compile",
+        default=None,
+        help="编译单份代码文件",
+    )
+    cmdarg_parser.add_argument(
+        "-l",
+        action="store_true",
+        dest="load_ast",
+        default=None,
+        help="加载中间代码",
+    )
     cmdarg_parser.add_argument("filename", type=str, nargs="?", help="源文件")
+    cmdarg_parser.add_argument("target", type=str, nargs="?", help="编译目标")
     cmdargs = cmdarg_parser.parse_args()
 
-    # Create Interpreter
-    i = PL_Interpreter(
-        prelude="""
-Get("Bool") = Py("bool");
-Get("BreakPoint") = Py("breakpoint");
-Get("Complex") = Py("complex");
-Get("Copy") = Py("__import__('copy').copy");
-Get("DeepCopy") = Py("__import__('copy').deepcopy");
-Get("Dict") = Py("dict");
-Get("Fargs") = Py("lambda f: lambda *args: f([*args])");  # func(List) -> func(*args)
-Get("Float") = Py("float");
-Get("Input") = Py("input");
-Get("Int") = Py("int");
-Get("Len") = Py("len");
-Get("List") = Py("list");
-Get("Max") = Py("max");
-Get("Min") = Py("min");
-Get("Print") = Py("print");
-Get("Reversed") = Py("reversed");
-Get("Round") = Py("round");
-Get("Set") = Py("set");
-Get("Sorted") = Py("sorted");
-Get("Str") = Py("str");
-Get("Sum") = Py("sum");
-Get("Struct") = Py("lambda *fields:  \
-    __import__('dataclasses').dataclass(  \
-        type('结构体', (), {  \
-            '__annotations__': {field: object for field in fields},  \
-            '__getattr__': lambda self, field: None,  \
-            '__getitem__': __import__('functools').partialmethod(getattr),  \
-            '__setitem__': __import__('functools').partialmethod(setattr),  \
-}))");  # ECMAScript-like Object except that assignment to a non-existing attribute has no effect
-Get("Type") = Py("type");
-"""
-        + """
-Get("Scan") = Py("input");
-"""
-    )
+    # Execute 序列化的 AST
+    if cmdargs.load_ast:
+        import pickle
 
+        with open(cmdargs.filename, "rb") as f:
+            ast: lark.tree.Tree = pickle.load(f)
+        i = PL_Interpreter()
+        for stmt in ast.children:
+            i.exec_stmt(stmt)
+        sys.exit()
+
+    # Compile
+    prelude = open(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "stdlib.txt"),
+        encoding="utf-8",
+    ).read()
+
+    if cmdargs.compile:
+        prelude += open(cmdargs.filename, encoding="utf-8").read()
+        import pickle
+
+        with open(cmdargs.target, "wb") as f:
+            pickle.dump(lark.Lark(grammar=PL_grammar, start="prog").parse(prelude), f)
+        sys.exit()
+
+    # Create Interpreter
+    i = PL_Interpreter(prelude=prelude)
     # 1. Execute Source Code
     # 2. Inferior Mode
     if cmdargs.filename is not None:

@@ -15,9 +15,12 @@ cx_Freeze.setup(
     version="0.1",
     options={
         "build_exe": {
+            "build_exe": "bin",
             "packages": ["lark"],
             "optimize": 2,
             "include_msvcr": True,
+            "no_compress": True,
+            "zip_includes": ["pl.lark", "stdlib.txt"],
         }
     },
     executables=[cx_Freeze.Executable("pl.py")],

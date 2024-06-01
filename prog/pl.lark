@@ -1,0 +1,107 @@
+# Architecture
+prog: stmt*
+?stmt: expr ";"
+     | block_stmt
+     | if_stmt | loop_stmt
+
+# Expression
+## Pre-Requisite
+?or_expr: and_expr
+        | or_expr "OR" and_expr
+?and_expr: not_expr
+         | and_expr "AND" not_expr
+!?not_expr: cmp_expr
+          | "NOT" not_expr
+?sum_expr: product_expr
+         | sum_expr (PLUS_SIGN|MINUS_SIGN) product_expr
+?product_expr: neg_like_expr
+             | product_expr (MUL_SIGN|DIV_SIGN) neg_like_expr
+?neg_like_expr: pow_expr
+              | "-"  (pow_expr|pre_inc_expr|pre_dec_expr|deref_expr) -> neg_expr
+              | pre_inc_expr
+              | pre_dec_expr
+              | addr_of_expr
+              | deref_expr
+pre_inc_expr: "++" neg_like_expr
+pre_dec_expr: "--" neg_like_expr
+addr_of_expr: "&"  neg_like_expr
+deref_expr: "*"  neg_like_expr
+?pow_expr: funcall_like_expr
+         | funcall_like_expr POW_SIGN neg_like_expr
+?funcall_like_expr: atom_expr
+                  | subscripting | funcall
+                  | funcall_like_expr "." CNAME -> member_accessing
+                  | funcall_like_expr "++" -> post_inc_expr
+                  | funcall_like_expr "--" -> post_dec_expr
+## Main
+?expr: assign_expr
+     | (CONTINUE|BREAK|RETURN) [expr] -> jmp_expr
+     | "LET" IDENT ["=" expr]         -> var_decl
+?assign_expr: logic_expr
+            | logic_expr "=" assign_expr
+?logic_expr: or_expr
+?cmp_expr: sum_expr ((EQ_SIGN|NE_SIGN|LE_SIGN|GE_SIGN|LT_SIGN|GT_SIGN) sum_expr)*
+?atom_expr: IDENT
+          | lit_val | "(" expr ")" | block_expr
+          | if_expr | loop_expr
+
+# Array
+arr_lit: "[" (expr ("," expr)*)? "]"
+subscripting: funcall_like_expr "[" expr "]"
+
+# Function
+fn_lit: parameters (block_stmt|block_expr)
+funcall: funcall_like_expr args
+
+# Statements
+if_stmt: "IF" expr block_stmt ("ELSE" (if_stmt | "{" stmt*     "}"))?
+if_expr: "IF" expr block_expr ("ELSE" (if_expr | "{" stmt* expr"}"))?
+
+loop_stmt: ("FOR"|"WHILE") _loop_head block_stmt
+loop_expr: ("FOR"|"WHILE") _loop_head block_expr
+_loop_head: [UNMATCHABLE]  expr      [UNMATCHABLE]
+          |    [expr] ";"  expr ";"     [expr]
+
+# Misc
+CONTINUE: "CONTINUE"
+BREAK: "BREAK"
+RETURN: "RETURN"
+IDENT: (LETTER|"_")+ (LCASE_LETTER|"_"|DIGIT) (LETTER|"_"|DIGIT)*
+     |               (LCASE_LETTER|"_")       (LETTER|"_"|DIGIT)*
+parameters: "|" (IDENT ("," IDENT)*)? "|"
+block_stmt: "{" stmt*      "}"
+block_expr: "{" stmt* expr "}"
+args: "(" (expr ("," expr)*)? ")"
+?lit_val: INT
+        | arr_lit
+        | fn_lit
+        | STRING
+POW_SIGN: "^"
+MUL_SIGN: "*"
+DIV_SIGN: "/"
+PLUS_SIGN: "+"
+MINUS_SIGN: "-"
+EQ_SIGN: "=="
+NE_SIGN: "!=" | "<>"
+LE_SIGN: "<="
+GE_SIGN: ">="
+LT_SIGN: "<"
+GT_SIGN: ">"
+UNMATCHABLE: /^o^/
+expr_or_stmt: stmt -> stmt
+            | expr -> expr
+
+# Also see <~/AppData/Local/Packages/PythonSoftwareFoundation.Python.3.12_qbz5n2kfra8p0/LocalCache/local-packages/Python312/site-packages/lark/grammars/common.lark>.  (Personal note.)
+%import common.ESCAPED_STRING -> STRING
+%import common.INT
+%import common (LCASE_LETTER, LETTER, DIGIT, CNAME)
+%import common (WS, NEWLINE, SH_COMMENT)
+%ignore WS
+%ignore SH_COMMENT
+
+
+# Local Variables:
+# eval: (unless (featurep 'lark-mode)
+#         (load-file "lark-mode.el")
+#         (normal-mode))
+# End:

@@ -1,0 +1,11 @@
+LET fact;
+fact = |n| {
+    IF n {
+        n * fact(n-1)
+    } ELSE {
+        1
+    }
+};
+# 阶乘
+
+Print("5!", "=", fact(5));
