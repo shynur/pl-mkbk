@@ -203,10 +203,13 @@ class PL_Interpreter:
         )
 
         while True:
-
-            while ((txt := input(ps1)) + " ").isspace():
-                pass
-
+            while True:
+                try:
+                    txt = input(ps1)
+                except EOFError:
+                    continue
+                if not (txt + " ").isspace():
+                    break
             while True:
                 try:
                     ast = parse(txt)
@@ -287,7 +290,7 @@ def PL_eval(expr: lark.lexer.Token | lark.tree.Tree, *, env: List[PL_Env]):
         case "sum_expr" | "product_expr" | "pow_expr":
             return eval_arithm_expr_2op(form, env=env)
         case "not_expr":
-            return not get_val(PL_eval(form[0], env=env))
+            return not get_val(PL_eval(form[1], env=env))
         case "neg_expr":
             return -get_val(PL_eval(form[0], env=env))
         case "var_decl":
@@ -660,18 +663,28 @@ Copyright © 2024  Xie Qi.  All rights reserved.
     # Create Interpreter
     i = PL_Interpreter(
         prelude="""
-Get("Print"    ) = Py("print ");
-Get("Sorted"   ) = Py("sorted");
-Get("Min"      ) = Py("min   ");
-Get("Max"      ) = Py("max   ");
-Get("Len"      ) = Py("len   ");
-Get("Sum"      ) = Py("sum   ");
-Get("Dict"     ) = Py("dict  ");
-Get("Set"      ) = Py("set   ");
-Get("Copy"     ) = Py("__import__('copy').copy"    );
-Get("DeepCopy" ) = Py("__import__('copy').deepcopy");
-Get("Fargs"    ) = Py("lambda f: lambda *args: f([*args])");  # func(List) -> func(*args)
-Get("Struct"   ) = Py("lambda *fields:  \
+Get("Bool") = Py("bool");
+Get("BreakPoint") = Py("breakpoint");
+Get("Complex") = Py("complex");
+Get("Copy") = Py("__import__('copy').copy");
+Get("DeepCopy") = Py("__import__('copy').deepcopy");
+Get("Dict") = Py("dict");
+Get("Fargs") = Py("lambda f: lambda *args: f([*args])");  # func(List) -> func(*args)
+Get("Float") = Py("float");
+Get("Input") = Py("input");
+Get("Int") = Py("int");
+Get("Len") = Py("len");
+Get("List") = Py("list");
+Get("Max") = Py("max");
+Get("Min") = Py("min");
+Get("Print") = Py("print");
+Get("Reversed") = Py("reversed");
+Get("Round") = Py("round");
+Get("Set") = Py("set");
+Get("Sorted") = Py("sorted");
+Get("Str") = Py("str");
+Get("Sum") = Py("sum");
+Get("Struct") = Py("lambda *fields:  \
     __import__('dataclasses').dataclass(  \
         type('结构体', (), {  \
             '__annotations__': {field: object for field in fields},  \
@@ -679,9 +692,10 @@ Get("Struct"   ) = Py("lambda *fields:  \
             '__getitem__': __import__('functools').partialmethod(getattr),  \
             '__setitem__': __import__('functools').partialmethod(setattr),  \
 }))");  # ECMAScript-like Object except that assignment to a non-existing attribute has no effect
+Get("Type") = Py("type");
 """
         + """
-Get("Scan"     ) = Py("input ");
+Get("Scan") = Py("input");
 """
     )
 
