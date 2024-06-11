@@ -1,6 +1,5 @@
 #! python3.12
 import operator
-import pprint
 import itertools
 import sys
 from abc import abstractmethod
@@ -209,7 +208,7 @@ class PL_Interpreter:
                     pass
                 while True:
                     try:
-                        ast = parse(txt)
+                        ast: lark.tree.Tree = parse(txt)
                         expr_or_stmt: str = ast.data
                         expr = ast.children[0]
                     except lark.exceptions.UnexpectedEOF:
@@ -225,9 +224,8 @@ class PL_Interpreter:
                         break
                     else:
                         if self.debug:
-                            if hasattr(ast, "pretty"):
-                                pprint.pp(ast.pretty())
-                            pprint.pp(ast)
+                            print(ast.pretty())
+                            print(ast)
                         else:
                             self.exec_stmt(
                                 expr,
@@ -712,7 +710,7 @@ Get("Type") = Py("type");
 """
         + """
 Get("Scan") = Py("input");
-"""
+""",
     )
 
     # 1. Execute Source Code
