@@ -1,5 +1,6 @@
 #! python3.12
 import operator
+import pprint
 import itertools
 import sys
 from abc import abstractmethod
@@ -7,18 +8,6 @@ from types import NoneType
 from typing import Any, Dict, Iterable, List, Self, Tuple, Union, Optional
 import lark  # 1.1.9
 from enum import Enum
-
-
-class TermColor(Enum):
-    Black = "\033[30m"
-    Red = "\033[31m"
-    Green = "\033[32m"
-    Yellow = "\033[33m"
-    Blue = "\033[34m"
-    Magenta = "\033[35m"
-    Cyan = "\033[36m"
-    White = "\033[37m"
-    End = "\033[0m"
 
 
 class PL_Env:
@@ -169,6 +158,18 @@ class PL_Lambda:
         return ret
 
 
+class TermColor(Enum):
+    Black = "\033[30m"
+    Red = "\033[31m"
+    Green = "\033[32m"
+    Yellow = "\033[33m"
+    Blue = "\033[34m"
+    Magenta = "\033[35m"
+    Cyan = "\033[36m"
+    White = "\033[37m"
+    End = "\033[0m"
+
+
 class PL_Interpreter:
     def __init__(
         self,
@@ -196,44 +197,49 @@ class PL_Interpreter:
             self.run_prog(prelude)
 
     def start_repl(self):
-        parse = lark.Lark(PL_grammar, start="expr_or_stmt").parse
         ps1, ps2 = (
             f"{TermColor.Magenta.value}=>{TermColor.End.value} ",
             f"{TermColor.Green.value}->{TermColor.End.value} ",
         )
 
+        parse = lark.Lark(PL_grammar, start="expr_or_stmt").parse
         while True:
-            while True:
-                try:
-                    txt = input(ps1)
-                except EOFError:
-                    continue
-                if not (txt + " ").isspace():
-                    break
-            while True:
-                try:
-                    ast = parse(txt)
-                    expr_or_stmt: str = ast.data
-                    expr = ast.children[0]
-                except lark.exceptions.UnexpectedEOF:
-                    txt += "\n" + input(ps2)
-                except Exception as e:
-                    print("Error:", e, file=sys.stderr)
-                    if hasattr(e, "__notes__"):
-                        print(*e.__notes__, sep="\n", file=sys.stderr)
-                    break
-                else:
-                    if self.debug:
+            try:
+                while ((txt := input(ps1)) + " ").isspace():
+                    pass
+                while True:
+                    try:
+                        ast = parse(txt)
+                        expr_or_stmt: str = ast.data
+                        expr = ast.children[0]
+                    except lark.exceptions.UnexpectedEOF:
+                        txt += "\n" + input(ps2)
+                    except Exception as e:
                         print(
-                            f"{ast.pretty()}\n{ast}" if hasattr(ast, "pretty") else ast
+                            f"{TermColor.Red.value}Error{TermColor.End.value}:",
+                            e,
+                            file=sys.stderr,
                         )
+                        if hasattr(e, "__notes__"):
+                            print(*e.__notes__, sep="\n", file=sys.stderr)
+                        break
                     else:
-                        self.exec_stmt(
-                            expr,
-                            interactive=True,
-                            expr_or_stmt=expr_or_stmt,
-                        )
-                    break
+                        if self.debug:
+                            if hasattr(ast, "pretty"):
+                                pprint.pp(ast.pretty())
+                            pprint.pp(ast)
+                        else:
+                            self.exec_stmt(
+                                expr,
+                                interactive=True,
+                                expr_or_stmt=expr_or_stmt,
+                            )
+                        break
+            except KeyboardInterrupt:
+                print(
+                    f"\n{TermColor.Red.value}KeyboardInterrupt{TermColor.End.value}",
+                    file=sys.stderr,
+                )
 
     def run_prog(self, prog: str, /):
         for stmt in lark.Lark(PL_grammar, start="prog").parse(prog).children:
@@ -250,23 +256,33 @@ class PL_Interpreter:
         try:
             ret = get_val(PL_eval(stmt, env=self.env))
         except PL_Jumper as j:
-            print("PL:", "Error Jump Statement", j, file=sys.stderr)
+            print(
+                "PL:",
+                f"{TermColor.Red.value}Error{TermColor.End.value} Jump Statement",
+                j,
+                file=sys.stderr,
+            )
             return
         except Exception as e:
             if interactive:
-                print("PL:", "Error", e, file=sys.stderr)
+                print(
+                    "PL:",
+                    f"{TermColor.Red.value}Error{TermColor.End.value}",
+                    e,
+                    file=sys.stderr,
+                )
                 if hasattr(e, "__notes__"):
                     print(*e.__notes__, sep="\n", file=sys.stderr)
             else:
                 raise
         except KeyboardInterrupt:
-            print("KeyboardInterrupt", file=sys.stderr)
+            print(
+                f"{TermColor.Red.value}KeyboardInterrupt{TermColor.End.value}",
+                file=sys.stderr,
+            )
         else:
             if interactive and expr_or_stmt == "expr":
-                try:
-                    print(f"{TermColor.Cyan.value}{ret}{TermColor.End.value}")
-                except Exception as e:
-                    print("Error:", e, file=sys.stderr)
+                print(f"{TermColor.Cyan.value}{ret}{TermColor.End.value}")
 
 
 def PL_eval(expr: lark.lexer.Token | lark.tree.Tree, *, env: List[PL_Env]):
@@ -557,9 +573,9 @@ prog: stmt*
 ?product_expr: neg_like_expr
              | product_expr (MUL_SIGN|DIV_SIGN) neg_like_expr
 ?neg_like_expr: pow_expr
-              | "-"  neg_like_expr -> neg_expr
               | "++" neg_like_expr -> pre_inc_expr
               | "--" neg_like_expr -> pre_dec_expr
+              | "-"  neg_like_expr -> neg_expr
               | "&"  neg_like_expr -> addr_of_expr
               | "*"  neg_like_expr -> deref_expr
 ?pow_expr: funcall_like_expr

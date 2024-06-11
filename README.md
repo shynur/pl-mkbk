@@ -26,13 +26,22 @@ python pl.py -h
 
 ### 出错恢复
 
-在等待解释器执行的过程中, 可键入 <kbd>Control-C</kbd> 以终止执行; 解释器会等待新的输入.
+在等待解释器执行的过程中, 可键入 <kbd>Control-C</kbd> 以终止执行;  \
+若想舍弃当前输入的内容, 请键入 <kbd>Control-C</kbd>.
 
-若想舍弃当前输入的内容, 请键入 <kbd>Control-Z</kbd> <kbd>Enter</kbd>.
+总而言之, <kbd>Control-C</kbd> 会带你重回顶层, 并等待新的输入.
 
 ### 退出解释器
 
-狂按 <kbd>Control-C</kbd>.
+只要 输入文本中 任一行的行首字符是 `^Z` (由 <kbd>Control-Z</kbd> 产生), 解释器就会退出.
+例如,
+
+```
+=> 1 +
+-> ^Z 233
+EOFError
+解释器退出了...
+```
 
 ## License
 
