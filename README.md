@@ -45,6 +45,8 @@ EOFError
 
 ## License
 
-*目前*未指定许可证.
+See the [LICENSE.md](./LICENSE.md) file for license rights and limitations (LGPLv3).
 
-> Without a license, the default copyright laws apply, meaning that I retain all rights to my source code and no one may reproduce, distribute, or create derivative works from my work.
+-----
+
+Copyright &copy; 2024  [*谢骐*](https://github.com/shynur).  All rights reserved.
