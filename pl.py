@@ -329,10 +329,10 @@ class PL_Interpreter:
                         if self.debug:
                             print(ast.pretty())
                             print(ast)
-                        ret_val = get_val(self.exec_stmt(expr, interactive=True))
+                        stmt_result = self.exec_stmt(expr, interactive=True)
                         if expr_or_stmt == "expr":
                             print(
-                                f"{TermColor.Cyan.value}{ret_val}{TermColor.End.value}"
+                                f"{TermColor.Cyan.value}{get_val(stmt_result)}{TermColor.End.value}"
                             )
                         break
             except KeyboardInterrupt:
