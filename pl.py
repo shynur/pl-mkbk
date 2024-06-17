@@ -297,7 +297,7 @@ class PL_Interpreter:
 
     prog_parser, stmt_parser = (
         lark.Lark(PL_grammar, start="prog", parser="lalr").parse,
-        lark.Lark(PL_grammar, start="expr_or_stmt", parser="lalr").parse,
+        lark.Lark(PL_grammar, start="expr_or_stmt").parse,
     )
 
     def start_repl(self):
