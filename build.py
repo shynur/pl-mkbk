@@ -1,5 +1,5 @@
 #! python3.12
-import cx_Freeze  # 7.1.0
+import cx_Freeze  # v7.1.0
 
 
 """
