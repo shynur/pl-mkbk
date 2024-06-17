@@ -20,5 +20,9 @@ cx_Freeze.setup(
             "include_msvcr": True,
         }
     },
-    executables=[cx_Freeze.Executable("pl.py")],
+    executables=[cx_Freeze.Executable(
+        "pl.py",
+        shortcut_dir="DesktopFolder", shortcut_name="PL-玛卡巴卡",
+        copyright="谢骐 <https://github.com/shynur>",
+    )],
 )
