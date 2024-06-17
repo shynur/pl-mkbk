@@ -5,8 +5,108 @@ import sys
 from abc import abstractmethod
 from types import NoneType
 from typing import Any, Dict, Iterable, List, Self, Tuple, Union, Optional
-import lark  # 1.1.9
+import lark  # v1.1.9
 from enum import Enum
+
+
+PL_grammar: str = """
+# Architecture
+prog: stmt*
+?stmt: expr ";"
+     | block_stmt
+     | if_stmt | loop_stmt
+
+# Expression
+## Pre-Requisite
+?or_expr: and_expr
+        | or_expr "OR" and_expr
+?and_expr: not_expr
+         | and_expr "AND" not_expr
+!?not_expr: cmp_expr
+          | "NOT" not_expr
+?sum_expr: product_expr
+         | sum_expr (PLUS_SIGN|MINUS_SIGN) product_expr
+?product_expr: neg_like_expr
+             | product_expr (MUL_SIGN|DIV_SIGN) neg_like_expr
+?neg_like_expr: pow_expr
+              | "++" neg_like_expr -> pre_inc_expr
+              | "--" neg_like_expr -> pre_dec_expr
+              | "-"  neg_like_expr -> neg_expr
+              | "&"  neg_like_expr -> addr_of_expr
+              | "*"  neg_like_expr -> deref_expr
+?pow_expr: funcall_like_expr
+         | funcall_like_expr POW_SIGN neg_like_expr
+?funcall_like_expr: atom_expr
+                  | subscripting | funcall
+                  | funcall_like_expr "." CNAME -> member_accessing
+                  | funcall_like_expr "++" -> post_inc_expr
+                  | funcall_like_expr "--" -> post_dec_expr
+## Main
+?expr: assign_expr
+     | (CONTINUE|BREAK|RETURN) [expr] -> jmp_expr
+     | "LET" IDENT ["=" expr]         -> var_decl
+?assign_expr: logic_expr
+            | logic_expr "=" assign_expr
+?logic_expr: or_expr
+?cmp_expr: sum_expr ((EQ_SIGN|NE_SIGN|LE_SIGN|GE_SIGN|LT_SIGN|GT_SIGN) sum_expr)*
+?atom_expr: IDENT
+          | lit_val | "(" expr ")" | block_expr
+          | if_expr | loop_expr
+
+# Array
+arr_lit: "[" (expr ("," expr)*)? "]"
+subscripting: funcall_like_expr "[" expr "]"
+
+# Function
+fn_lit: parameters (block_stmt|block_expr)
+funcall: funcall_like_expr args
+
+# Statements
+if_stmt: "IF" expr block_stmt ("ELSE" (if_stmt | "{" stmt*     "}"))?
+if_expr: "IF" expr block_expr ("ELSE" (if_expr | "{" stmt* expr"}"))?
+
+loop_stmt: ("FOR"|"WHILE") _loop_head block_stmt
+loop_expr: ("FOR"|"WHILE") _loop_head block_expr
+_loop_head: [UNMATCHABLE]  expr      [UNMATCHABLE]
+          |    [expr] ";"  expr ";"     [expr]
+
+# Misc
+CONTINUE: "CONTINUE"
+BREAK: "BREAK"
+RETURN: "RETURN"
+IDENT: (LETTER|"_")+ (LCASE_LETTER|"_"|DIGIT) (LETTER|"_"|DIGIT)*
+     |               (LCASE_LETTER|"_")       (LETTER|"_"|DIGIT)*
+parameters: "|" (IDENT ("," IDENT)*)? "|"
+block_stmt: "{" stmt*      "}"
+block_expr: "{" stmt* expr "}"
+args: "(" (expr ("," expr)*)? ")"
+?lit_val: INT
+        | arr_lit
+        | fn_lit
+        | STRING
+POW_SIGN: "^"
+MUL_SIGN: "*"
+DIV_SIGN: "/"
+PLUS_SIGN: "+"
+MINUS_SIGN: "-"
+EQ_SIGN: "=="
+NE_SIGN: "!=" | "<>"
+LE_SIGN: "<="
+GE_SIGN: ">="
+LT_SIGN: "<"
+GT_SIGN: ">"
+UNMATCHABLE: /^o^/
+expr_or_stmt: stmt -> stmt
+            | expr -> expr
+
+# Also see <~/AppData/Local/Packages/PythonSoftwareFoundation.Python.3.12_qbz5n2kfra8p0/LocalCache/local-packages/Python312/site-packages/lark/grammars/common.lark>.  (Personal note.)
+%import common.ESCAPED_STRING -> STRING
+%import common.INT
+%import common (LCASE_LETTER, LETTER, DIGIT, CNAME)
+%import common (WS, NEWLINE, SH_COMMENT)
+%ignore WS
+%ignore SH_COMMENT
+"""
 
 
 class PL_Env:
@@ -195,22 +295,25 @@ class PL_Interpreter:
         if prelude is not None:
             self.run_prog(prelude)
 
+    prog_parser, stmt_parser = (
+        lark.Lark(PL_grammar, start="prog", parser="lalr").parse,
+        lark.Lark(PL_grammar, start="expr_or_stmt", parser="lalr").parse,
+    )
+
     def start_repl(self):
         ps1, ps2 = (
             f"{TermColor.Magenta.value}=>{TermColor.End.value} ",
             f"{TermColor.Green.value}->{TermColor.End.value} ",
         )
 
-        parse = lark.Lark(PL_grammar, start="expr_or_stmt").parse
         while True:
             try:
                 while ((txt := input(ps1)) + " ").isspace():
                     pass
                 while True:
                     try:
-                        ast: lark.tree.Tree = parse(txt)
-                        expr_or_stmt: str = ast.data
-                        expr = ast.children[0]
+                        ast: lark.tree.Tree = PL_Interpreter.stmt_parser(txt)
+                        expr_or_stmt, expr = ast.data, ast.children[0]
                     except lark.exceptions.UnexpectedEOF:
                         txt += "\n" + input(ps2)
                     except Exception as e:
@@ -226,11 +329,10 @@ class PL_Interpreter:
                         if self.debug:
                             print(ast.pretty())
                             print(ast)
-                        else:
-                            self.exec_stmt(
-                                expr,
-                                interactive=True,
-                                expr_or_stmt=expr_or_stmt,
+                        ret_val = get_val(self.exec_stmt(expr, interactive=True))
+                        if expr_or_stmt == "expr":
+                            print(
+                                f"{TermColor.Cyan.value}{ret_val}{TermColor.End.value}"
                             )
                         break
             except KeyboardInterrupt:
@@ -240,19 +342,25 @@ class PL_Interpreter:
                 )
 
     def run_prog(self, prog: str, /):
-        for stmt in lark.Lark(PL_grammar, start="prog").parse(prog).children:
+        for stmt in PL_Interpreter.prog_parser(prog).children:
             self.exec_stmt(stmt)
 
     def exec_stmt(
         self,
-        stmt: lark.lexer.Token | lark.tree.Tree,
+        stmt: lark.tree.Tree | lark.lexer.Token | str,
         /,
         *,
         interactive: bool = False,
-        expr_or_stmt: str = "stmt",  # when using REPL user may enter an expression whose value’ll be printed.
     ):
+        if stmt.__class__ is str:
+            assert not interactive
+            stmt = PL_Interpreter.stmt_parser(
+                str(stmt)  # ‘pyright’实在太傻逼了...
+            ).children[0]
+        assert isinstance(stmt, lark.tree.Tree) or isinstance(stmt, lark.lexer.Token)
+
         try:
-            ret = get_val(PL_eval(stmt, env=self.env))
+            return PL_eval(stmt, env=self.env)
         except PL_Jumper as j:
             print(
                 "PL:",
@@ -278,9 +386,6 @@ class PL_Interpreter:
                 f"{TermColor.Red.value}KeyboardInterrupt{TermColor.End.value}",
                 file=sys.stderr,
             )
-        else:
-            if interactive and expr_or_stmt == "expr":
-                print(f"{TermColor.Cyan.value}{ret}{TermColor.End.value}")
 
 
 def PL_eval(expr: lark.lexer.Token | lark.tree.Tree, *, env: List[PL_Env]):
@@ -551,105 +656,6 @@ def eval_arithm_expr_2op(
     }[op_sign.type](get_val(PL_eval(expr1, env=env)), get_val(PL_eval(expr2, env=env)))
 
 
-PL_grammar: str = """
-# Architecture
-prog: stmt*
-?stmt: expr ";"
-     | block_stmt
-     | if_stmt | loop_stmt
-
-# Expression
-## Pre-Requisite
-?or_expr: and_expr
-        | or_expr "OR" and_expr
-?and_expr: not_expr
-         | and_expr "AND" not_expr
-!?not_expr: cmp_expr
-          | "NOT" not_expr
-?sum_expr: product_expr
-         | sum_expr (PLUS_SIGN|MINUS_SIGN) product_expr
-?product_expr: neg_like_expr
-             | product_expr (MUL_SIGN|DIV_SIGN) neg_like_expr
-?neg_like_expr: pow_expr
-              | "++" neg_like_expr -> pre_inc_expr
-              | "--" neg_like_expr -> pre_dec_expr
-              | "-"  neg_like_expr -> neg_expr
-              | "&"  neg_like_expr -> addr_of_expr
-              | "*"  neg_like_expr -> deref_expr
-?pow_expr: funcall_like_expr
-         | funcall_like_expr POW_SIGN neg_like_expr
-?funcall_like_expr: atom_expr
-                  | subscripting | funcall
-                  | funcall_like_expr "." CNAME -> member_accessing
-                  | funcall_like_expr "++" -> post_inc_expr
-                  | funcall_like_expr "--" -> post_dec_expr
-## Main
-?expr: assign_expr
-     | (CONTINUE|BREAK|RETURN) [expr] -> jmp_expr
-     | "LET" IDENT ["=" expr]         -> var_decl
-?assign_expr: logic_expr
-            | logic_expr "=" assign_expr
-?logic_expr: or_expr
-?cmp_expr: sum_expr ((EQ_SIGN|NE_SIGN|LE_SIGN|GE_SIGN|LT_SIGN|GT_SIGN) sum_expr)*
-?atom_expr: IDENT
-          | lit_val | "(" expr ")" | block_expr
-          | if_expr | loop_expr
-
-# Array
-arr_lit: "[" (expr ("," expr)*)? "]"
-subscripting: funcall_like_expr "[" expr "]"
-
-# Function
-fn_lit: parameters (block_stmt|block_expr)
-funcall: funcall_like_expr args
-
-# Statements
-if_stmt: "IF" expr block_stmt ("ELSE" (if_stmt | "{" stmt*     "}"))?
-if_expr: "IF" expr block_expr ("ELSE" (if_expr | "{" stmt* expr"}"))?
-
-loop_stmt: ("FOR"|"WHILE") _loop_head block_stmt
-loop_expr: ("FOR"|"WHILE") _loop_head block_expr
-_loop_head: [UNMATCHABLE]  expr      [UNMATCHABLE]
-          |    [expr] ";"  expr ";"     [expr]
-
-# Misc
-CONTINUE: "CONTINUE"
-BREAK: "BREAK"
-RETURN: "RETURN"
-IDENT: (LETTER|"_")+ (LCASE_LETTER|"_"|DIGIT) (LETTER|"_"|DIGIT)*
-     |               (LCASE_LETTER|"_")       (LETTER|"_"|DIGIT)*
-parameters: "|" (IDENT ("," IDENT)*)? "|"
-block_stmt: "{" stmt*      "}"
-block_expr: "{" stmt* expr "}"
-args: "(" (expr ("," expr)*)? ")"
-?lit_val: INT
-        | arr_lit
-        | fn_lit
-        | STRING
-POW_SIGN: "^"
-MUL_SIGN: "*"
-DIV_SIGN: "/"
-PLUS_SIGN: "+"
-MINUS_SIGN: "-"
-EQ_SIGN: "=="
-NE_SIGN: "!=" | "<>"
-LE_SIGN: "<="
-GE_SIGN: ">="
-LT_SIGN: "<"
-GT_SIGN: ">"
-UNMATCHABLE: /^o^/
-expr_or_stmt: stmt -> stmt
-            | expr -> expr
-
-# Also see <~/AppData/Local/Packages/PythonSoftwareFoundation.Python.3.12_qbz5n2kfra8p0/LocalCache/local-packages/Python312/site-packages/lark/grammars/common.lark>.  (Personal note.)
-%import common.ESCAPED_STRING -> STRING
-%import common.INT
-%import common (LCASE_LETTER, LETTER, DIGIT, CNAME)
-%import common (WS, NEWLINE, SH_COMMENT)
-%ignore WS
-%ignore SH_COMMENT
-"""
-
 if __name__ == "__main__":
     __import__("gc").disable()
 
@@ -661,7 +667,7 @@ if __name__ == "__main__":
         description="An interpreter for the programming language “PL/Macabaca” designed by shynur.",
         epilog="""
 Project URL: <https://github.com/shynur/pl-mkbk>.
-Copyright © 2024  Xie Qi.  All rights reserved.
+Copyright © 2024  Xie Qi <one.last.kiss@outlook.com>.  All rights reserved.
 """,
     )
     cmdarg_parser.add_argument(
@@ -710,7 +716,7 @@ Get("Type") = Py("type");
 """
         + """
 Get("Scan") = Py("input");
-""",
+"""
     )
 
     # 1. Execute Source Code

@@ -47,6 +47,6 @@ EOFError
 
 See the [LICENSE.md](./LICENSE.md) file for license rights and limitations (LGPLv3).
 
------
+_____
 
 Copyright &copy; 2024  [*谢骐*](https://github.com/shynur).  All rights reserved.
