@@ -269,6 +269,16 @@ class TermColor(Enum):
     End = "\033[0m"
 
 
+def print_err(e: Exception):
+    print(
+        f"{TermColor.Red.value}Error{TermColor.End.value}:",
+        e,
+        file=sys.stderr,
+    )
+    if hasattr(e, "__notes__"):
+        print(*e.__notes__, sep="\n", file=sys.stderr)
+
+
 class PL_Interpreter:
     def __init__(
         self,
@@ -317,13 +327,7 @@ class PL_Interpreter:
                     except lark.exceptions.UnexpectedEOF:
                         txt += "\n" + input(ps2)
                     except Exception as e:
-                        print(
-                            f"{TermColor.Red.value}Error{TermColor.End.value}:",
-                            e,
-                            file=sys.stderr,
-                        )
-                        if hasattr(e, "__notes__"):
-                            print(*e.__notes__, sep="\n", file=sys.stderr)
+                        print_err(e)
                         break
                     else:
                         if self.debug:
@@ -331,9 +335,12 @@ class PL_Interpreter:
                             print(ast)
                         stmt_result = self.exec_stmt(expr, interactive=True)
                         if expr_or_stmt == "expr":
-                            print(
-                                f"{TermColor.Cyan.value}{get_val(stmt_result)}{TermColor.End.value}"
-                            )
+                            try:
+                                print(
+                                    f"{TermColor.Cyan.value}{get_val(stmt_result)}{TermColor.End.value}"
+                                )
+                            except KeyError as e:  # Lval may be a NULL reference.
+                                print_err(e)
                         break
             except KeyboardInterrupt:
                 print(
@@ -371,14 +378,7 @@ class PL_Interpreter:
             return
         except Exception as e:
             if interactive:
-                print(
-                    "PL:",
-                    f"{TermColor.Red.value}Error{TermColor.End.value}",
-                    e,
-                    file=sys.stderr,
-                )
-                if hasattr(e, "__notes__"):
-                    print(*e.__notes__, sep="\n", file=sys.stderr)
+                print_err(e)
             else:
                 raise
         except KeyboardInterrupt:
